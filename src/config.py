@@ -215,6 +215,14 @@ class Configurations(object):
         self.LOSS.lecam_ema_start_iter = "N/A"
         # decay rate for the EMALosses
         self.LOSS.lecam_ema_decay = "N/A"
+        # focal frequency loss
+        self.LOSS.apply_ffl = False
+        # focal frequency loss wegiht
+        self.LOSS.ffl_w = "N/A"
+        # focal frequency scaling factor alpha of the spectrum weight matrix for flexibility
+        self.LOSS.ffl_alpha = "N/A"
+        # focal frequency loss start step
+        self.LOSS.freq_start_step = "N/A"
 
         # -----------------------------------------------------------------------------
         # optimizer settings

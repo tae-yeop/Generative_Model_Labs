@@ -44,6 +44,8 @@ import utils.resize as resize
 import utils.apa_aug as apa_aug
 import wandb
 
+from focal_frequency_loss import FocalFrequencyLoss as FFL
+
 SAVE_FORMAT = "step={step:0>3}-Inception_mean={Inception_mean:<.4}-Inception_std={Inception_std:<.4}-FID={FID:<.5}.pth"
 
 LOG_FORMAT = ("Step: {step:>6} "
@@ -117,6 +119,9 @@ class WORKER(object):
         self.ce_loss = torch.nn.CrossEntropyLoss()
         self.fm_loss = losses.feature_matching_loss
         self.lecam_ema = ops.LeCamEMA()
+        if self.LOSS.apply_ffl:
+            self.ffl = FFL(loss_weight=self.LOSS.ffl_w, alpha=self.LOSS.ffl_alpha,
+                           patch_factor=1,ave_spectrum=True, log_matrix=True, batch_matrix=True)
         if self.lecam_emas is not None:
             self.lecam_ema.__dict__ = self.lecam_emas
         self.lecam_ema.decay, self.lecam_ema.start_itr = self.LOSS.lecam_ema_decay, self.LOSS.lecam_ema_start_iter
@@ -616,6 +621,12 @@ class WORKER(object):
                     if self.MODEL.info_type in ["continuous", "both"]:
                         self.info_conti_loss = losses.normal_nll_loss(info_conti_c, fake_dict["info_conti_mu"], fake_dict["info_conti_var"])
                         gen_acml_loss += self.LOSS.infoGAN_loss_conti_lambda*self.info_conti_loss + misc.enable_allreduce(fake_dict)
+                        
+                    if self.LOSS.apply_ffl and current_step > self.LOSS.freq_start_step:
+                        real_image_basket, _ = self.sample_data_basket()
+                        real_images = real_image_basket[0].to(self.local_rank, non_blocking=True)
+                        self.ffl_loss = self.ffl(fake_images, real_images, None)
+                        gen_acml_loss += self.ffl_loss
 
                     # adjust gradients for applying gradient accumluation trick
                     gen_acml_loss = gen_acml_loss / self.OPTIMIZATION.acml_steps
@@ -751,6 +762,9 @@ class WORKER(object):
         if self.MODEL.apply_d_sn:
             dis_sigmas = misc.calculate_all_sn(self.Dis, prefix="Dis")
             wandb.log(dis_sigmas, step=self.wandb_step)
+            
+        if self.LOSS.apply_ffl:
+            wandb.log({"focal frequency loss" : self.ffl_loss.item()}, step=self.wandb_step)
 
     # -----------------------------------------------------------------------------
     # visualize fake images for monitoring purpose.
